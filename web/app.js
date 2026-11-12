@@ -28,12 +28,14 @@ const closeModal = () => $('#modal').classList.add('hidden');
 const openModal = (html) => { const m = $('#modal'); m.innerHTML = html; m.classList.remove('hidden'); };
 
 function renderNav() {
-  $('#nav').innerHTML = me
-    ? `<a href="#/">Kho acc</a><a href="#/collection">Bộ sưu tập</a><a href="#/history">Lịch sử</a>${me.role === 'admin' ? '<a href="#/admin">Admin</a>' : ''}
-       <span class="coin">🪙 ${me.coins}</span><span class="mut">${esc(me.username)}</span><button id="out">Đăng xuất</button>`
-    : `<a href="#/">Kho acc</a><a href="#/login">Đăng nhập</a><a href="#/register">Đăng ký</a>`;
-  const out = $('#out');
-  if (out) out.onclick = () => { token = null; me = null; localStorage.removeItem('token'); renderNav(); location.hash = '#/login'; };
+  const cur = location.hash.replace('#', '') || '/';
+  const items = me
+    ? [['/', '🏠', 'Kho acc'], ['/tasks', '🎯', 'Nhiệm vụ'], ['/collection', '🗂️', 'Acc của tôi'], ['/history', '🧾', 'Lịch sử'],
+       ...(me.role === 'admin' ? [['/admin', '⚙️', 'Admin']] : []), ['/account', '👤', 'Tôi']]
+    : [['/', '🏠', 'Kho acc'], ['/login', '🔑', 'Đăng nhập'], ['/register', '✨', 'Đăng ký']];
+  $('#nav').innerHTML = items.map(([p, i, l]) =>
+    `<a href="#${p}" class="${cur === p || (p === '/' && cur.startsWith('/box/')) ? 'active' : ''}"><span>${i}</span><small>${l}</small></a>`).join('');
+  $('#coinbar').innerHTML = me ? `<span class="pill">🪙 ${me.coins}</span>` : '';
 }
 
 // ---------- Pages ----------
@@ -98,7 +100,7 @@ function authPage(kind) {
       <button class="btn" id="s">${login ? 'Đăng nhập' : 'Tạo tài khoản'}</button></div>`;
     $('#s').onclick = guard(async () => {
       const d = await api('/' + kind, { method: 'POST', body: { username: $('#u').value, password: $('#p').value } });
-      token = d.token; localStorage.setItem('token', token); me = d.user; renderNav(); location.hash = '#/';
+      token = d.token; localStorage.setItem('token', token); me = d.user; renderNav(); location.hash = sessionStorage.getItem('pending') ? '#/activate' : '#/';
     });
   };
 }
@@ -122,7 +124,7 @@ pages['/history'] = async (el) => {
 
 pages['/admin'] = async (el) => {
   need(); if (me.role !== 'admin') throw new Error('Không có quyền admin');
-  const [{ users }, { boxes }, { accounts }] = await Promise.all([api('/admin/users'), api('/boxes'), api('/admin/accounts')]);
+  const [{ users }, { boxes }, { accounts }, { tasks }, { ips }] = await Promise.all([api('/admin/users'), api('/boxes'), api('/admin/accounts'), api('/admin/tasks'), api('/admin/banned-ips')]);
   const boxOpts = boxes.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
   el.innerHTML = `<h1>Admin</h1><div class="grid">
     <div class="card"><h3>➕ Thêm coin cho user</h3>
@@ -135,12 +137,29 @@ pages['/admin'] = async (el) => {
       <input id="at" placeholder="Tên hiển thị (vd: acc1)"><input id="au" placeholder="Username đăng nhập acc"><input id="ap" placeholder="Mật khẩu acc"><input id="ai" placeholder="Mô tả (level, trái, server...)"><input id="apr" type="number" min="1" placeholder="Giá coin (bỏ trống = giá nhóm)">
       <select id="ar">${['common', 'rare', 'epic', 'legendary', 'mythical'].map((r) => `<option>${r}</option>`).join('')}</select>
       <button class="btn" id="addacc">Thêm acc</button></div></div>
+    <h2>IP bị chặn</h2><div class="scroll"><table><tr><th>IP</th><th>Lý do</th><th>Lúc</th><th></th></tr>${ips.length ? ips.map((i) =>
+      `<tr><td>${esc(i.ip)}</td><td>${esc(i.reason)}</td><td>${fmtDate(i.created_at)}</td><td><button class="btn sm" data-unban="${esc(i.ip)}">Bỏ chặn</button></td></tr>`).join('') : '<tr><td colspan="4" class="mut">Chưa có IP nào bị chặn</td></tr>'}</table></div>
+    <h2>Người dùng &amp; IP</h2><div class="scroll"><table><tr><th>User</th><th>Coin</th><th>IP đăng ký</th><th>IP gần nhất</th><th></th></tr>${users.map((u) =>
+      `<tr><td>${esc(u.username)}${u.locked ? ' 🔒' : ''}</td><td>${u.coins}</td><td>${esc(u.register_ip || '-')}</td><td>${esc(u.last_ip || '-')}</td>
+       <td>${u.role === 'admin' ? '' : `<button class="btn sm ${u.locked ? '' : 'red'}" data-lock="${u.id}" data-v="${!u.locked}">${u.locked ? 'Mở khóa' : 'Khóa'}</button>`}</td></tr>`).join('')}</table></div>
+    <h2>Nhiệm vụ vượt link</h2><div class="scroll"><table><tr><th>#</th><th>User</th><th>Trạng thái</th><th>IP nhận → IP xong</th><th>Cờ nghi vấn</th><th>Lúc</th><th></th></tr>${tasks.map((t) =>
+      `<tr><td>${t.id}</td><td>${esc(t.username)}</td><td>${esc(t.status)}</td><td>${esc(t.create_ip || '-')} → ${esc(t.done_ip || '-')}</td>
+       <td style="color:${t.flags ? 'var(--danger)' : 'inherit'}">${esc(t.flags || '-')}</td><td>${fmtDate(t.completed_at || t.created_at)}</td><td><button class="btn sm red" data-ban="${esc(t.done_ip || t.create_ip || '')}">Chặn IP</button></td></tr>`).join('')}</table></div>
     <h2>Nhóm acc</h2><div class="scroll"><table><tr><th>Tên</th><th>Giá</th><th>Còn</th><th></th></tr>${boxes.map((b) =>
       `<tr><td>${esc(b.name)}</td><td>${b.price}</td><td>${b.stock}</td><td><button class="btn sm" data-tog="${b.id}" data-act="${!b.active}">${b.active ? 'Tắt' : 'Bật'}</button></td></tr>`).join('')}</table></div>
     <h2>Kho acc</h2><div class="scroll"><table><tr><th>Acc</th><th>Giá</th><th>Nhóm</th><th>Hiếm</th><th>Trạng thái</th><th></th></tr>${accounts.map((a) =>
       `<tr><td>${esc(a.title)}<br><span class="mut">${esc(a.username)}</span></td><td>${a.price}</td><td>${esc(a.box_name)}</td><td><span class="tag ${esc(a.rarity)}">${esc(a.rarity)}</span></td><td>${a.status === 'sold' ? 'Đã phát → ' + esc(a.owner) : 'Còn'}</td>
        <td>${a.status === 'available' ? `<button class="btn sm red" data-del="${a.id}">Xóa</button>` : ''}</td></tr>`).join('')}</table></div>`;
   const done = (m) => { toast(m); route(); };
+  el.querySelectorAll('[data-ban]').forEach((b) => (b.onclick = guard(async () => {
+    if (b.dataset.ban && confirm('Chặn IP ' + b.dataset.ban + '?')) { await api('/admin/banned-ips', { method: 'POST', body: { ip: b.dataset.ban } }); done('Đã chặn IP'); }
+  })));
+  el.querySelectorAll('[data-unban]').forEach((b) => (b.onclick = guard(async () => {
+    await api('/admin/banned-ips/unban', { method: 'POST', body: { ip: b.dataset.unban } }); done('Đã bỏ chặn');
+  })));
+  el.querySelectorAll('[data-lock]').forEach((b) => (b.onclick = guard(async () => {
+    await api('/admin/users/' + b.dataset.lock + '/lock', { method: 'PATCH', body: { locked: b.dataset.v === 'true' } }); done('Đã cập nhật');
+  })));
   $('#addcoin').onclick = guard(async () => { const r = await api(`/admin/users/${$('#cu').value}/coins`, { method: 'POST', body: { amount: Number($('#ca').value), note: $('#cn').value } }); done(`${r.username}: 🪙 ${r.coins}`); });
   $('#addbox').onclick = guard(async () => { await api('/admin/boxes', { method: 'POST', body: { name: $('#bn').value, description: $('#bd').value, price: Number($('#bp').value) } }); done('Đã tạo túi'); });
   $('#addacc').onclick = guard(async () => { await api('/admin/accounts', { method: 'POST', body: { box_id: Number($('#ab').value), title: $('#at').value, price: $('#apr').value ? Number($('#apr').value) : undefined, username: $('#au').value, password: $('#ap').value, info: $('#ai').value, rarity: $('#ar').value } }); done('Đã thêm acc'); });
@@ -148,9 +167,50 @@ pages['/admin'] = async (el) => {
   el.querySelectorAll('[data-del]').forEach((b) => (b.onclick = guard(async () => { if (confirm('Xóa acc này?')) { await api('/admin/accounts/' + b.dataset.del, { method: 'DELETE' }); done('Đã xóa'); } })));
 };
 
+pages['/account'] = async (el) => {
+  need();
+  el.innerHTML = `<div class="card narrow"><h2>👤 ${esc(me.username)}</h2><p>Số dư: <b class="price">🪙 ${me.coins}</b></p><button class="btn red" id="out">Đăng xuất</button></div>`;
+  $('#out').onclick = () => { token = null; me = null; localStorage.removeItem('token'); location.hash = '#/login'; };
+};
+
+pages['/tasks'] = async (el) => {
+  need();
+  const info = await api('/tasks/info');
+  el.innerHTML = `<h1>Nhiệm vụ vượt link</h1><div class="card narrow" style="margin:0 auto"><div class="emoji">🎯</div>
+    <p style="text-align:center">Vượt 1 link nhận <b class="price">🪙 ${info.reward}</b></p>
+    <p class="mut" style="text-align:center">Hôm nay: ${info.doneToday}/${info.dailyLimit} nhiệm vụ</p>
+    <ol class="mut"><li>Bấm "Nhận link nhiệm vụ"</li><li>Mở link và vượt xong, web sẽ tự mở lại</li><li>Hệ thống xác nhận lượt xem rồi mới cộng coin</li><li>Phải mất ít nhất ${Math.round(info.minSeconds / 60)} phút. Dùng công cụ bypass nhiều lần sẽ bị chặn IP</li></ol>
+    <button class="btn" id="mk" ${info.doneToday >= info.dailyLimit ? 'disabled' : ''}>Nhận link nhiệm vụ</button><div id="lk" style="margin-top:12px"></div></div>`;
+  $('#mk').onclick = guard(async () => {
+    const t = await api('/tasks', { method: 'POST' });
+    $('#lk').innerHTML = `<a href="${esc(t.shortUrl)}" target="_blank" rel="noopener"><button class="btn">Mở link vượt (+${t.reward} coin)</button></a>
+      <p class="mut">Vượt xong coin sẽ tự cộng. Nếu chưa thấy, quay lại trang này sau ít phút.</p>`;
+  });
+};
+
+// Trang kích hoạt: người dùng được đưa về đây sau khi vượt link xong
+pages['/activate'] = async (el) => {
+  const raw = sessionStorage.getItem('pending');
+  if (!raw) { location.hash = '#/'; return; }
+  need(); // chưa đăng nhập thì chuyển sang trang đăng nhập, nhiệm vụ vẫn được giữ lại
+  const { id, t, ref } = JSON.parse(raw);
+  el.innerHTML = '<div class="card narrow" style="text-align:center"><h2>Đang xác nhận nhiệm vụ...</h2></div>';
+  try {
+    const r = await api(`/tasks/${id}/activate`, { method: 'POST', body: { token: t, referrer: ref || '' } });
+    sessionStorage.removeItem('pending'); me.coins = r.coins; renderNav();
+    el.innerHTML = `<div class="card narrow" style="text-align:center"><div class="emoji">✅</div><h2>Thành công!</h2><p class="price">+${r.reward} coin</p><a href="#/"><button class="btn">Về kho acc</button></a></div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="card narrow" style="text-align:center"><div class="emoji">⚠️</div><p>${esc(e.message)}</p>
+      <div class="row" style="justify-content:center"><button class="btn" id="rt">Thử lại</button><button class="btn red" id="sk">Bỏ qua</button></div></div>`;
+    $('#rt').onclick = () => route();
+    $('#sk').onclick = () => { sessionStorage.removeItem('pending'); location.hash = '#/'; };
+  }
+};
+
 function need() { if (!me) { location.hash = '#/login'; throw new Error('Hãy đăng nhập'); } }
 
 async function route() {
+  renderNav();
   const el = $('#app');
   const path = (location.hash.replace('#', '') || '/');
   try {
@@ -158,6 +218,17 @@ async function route() {
     else await (pages[path] || pages['/'])(el);
   } catch (e) { toast(e.message); }
 }
+// Link đích sau khi vượt link: /?activate=ID&t=MÃ -> lưu lại rồi chuyển sang trang kích hoạt
+(function readActivation() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('activate') && q.get('t')) {
+    sessionStorage.setItem('pending', JSON.stringify({ id: Number(q.get('activate')), t: q.get('t'), ref: document.referrer }));
+    history.replaceState(null, '', location.pathname + '#/activate');
+  }
+})();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && token) api('/me').then((d) => { me = d.user; renderNav(); }).catch(() => {});
+});
 window.addEventListener('hashchange', route);
 (async () => {
   if (token) { try { me = (await api('/me')).user; } catch { token = null; localStorage.removeItem('token'); } }
