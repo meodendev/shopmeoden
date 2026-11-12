@@ -52,6 +52,40 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, id DESC);
+    CREATE TABLE IF NOT EXISTS tasks (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      token_hash TEXT NOT NULL,
+      short_url TEXT NOT NULL DEFAULT '',
+      reward INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id, created_at DESC);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS register_ip TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS create_ip TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS create_ua TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_ip TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_ua TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS referrer TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS flags TEXT NOT NULL DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_tasks_doneip ON tasks(done_ip, completed_at);
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS struck BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE IF NOT EXISTS banned_ips (
+      ip TEXT PRIMARY KEY,
+      reason TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS ip_strikes (
+      id SERIAL PRIMARY KEY,
+      ip TEXT NOT NULL,
+      user_id INTEGER,
+      reason TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_strikes_ip ON ip_strikes(ip, created_at);
   `);
 }
 
